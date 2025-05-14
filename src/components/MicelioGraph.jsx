@@ -2,22 +2,16 @@ import React from 'react';
 import ReactFlow from 'reactflow';
 import 'reactflow/dist/style.css';
 import { useNodos } from '../hooks/useNodos';
-
-const initialEdges = [
-  {
-    id: 'e1-2',
-    source: '1',
-    target: '2',
-    type: 'default',
-  },
-];
+import { useEdges } from '../hooks/useEdges';
 
 export default function MicelioGraph() {
   const nodos = useNodos();
+  const edges = useEdges();
+
 
   return (
     <div style={{ width: '100%', height: '400px', background: '#f0f0f0' }}>
-      <ReactFlow nodes={nodos} edges={[]} />
+      <ReactFlow nodes={nodos} edges={edges} />
     </div>
   );
 }
