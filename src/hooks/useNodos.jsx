@@ -29,7 +29,9 @@ function assignPositions(node, x = 0, y = 0, spacingX = 180, spacingY = 120, nex
         fecha: node.fecha || '',
         tipoTransferencia: node.tipoTransferencia || '',
         tipo: node.tipo || '',
-        padre: node.padre || ''
+        tipoAgar: node.tipoAgar || '',
+        padre: node.padre || '',
+        notas: node.notas || ''
       },
       type: 'default',
       draggable: true
@@ -68,7 +70,9 @@ function assignPositions(node, x = 0, y = 0, spacingX = 180, spacingY = 120, nex
       fecha: node.fecha || '',
       tipoTransferencia: node.tipoTransferencia || '',
       tipo: node.tipo || '',
-      padre: node.padre || ''
+      tipoAgar: node.tipoAgar || '',
+      padre: node.padre || '',
+      notas: node.notas || ''
     },
     type: 'default',
     draggable: true

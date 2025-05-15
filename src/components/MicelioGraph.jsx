@@ -3,16 +3,98 @@ import ReactFlow, { Background, Controls } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { useNodos } from '../hooks/useNodos';
 import { useEdges } from '../hooks/useEdges';
-import { collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, addDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 
-export default function MicelioGraph({ updateTrigger }) {
+const ESPECIES = [
+  'Psilocybe Natalensis',
+  'Hericium Erinaceus',
+  'Ganoderma Lucidum'
+];
+const TIPOS_TRANSFERENCIA = [
+  'Agar a Agar',
+  'Agar a Grano',
+  'Grano a Grano',
+  'Cultivo Liquido a Grano',
+  'Cultivo Liquido a Agar',
+  'Grano a Agar'
+];
+const TIPOS = [
+  'Placa Petri',
+  'Bote PP5 Grande',
+  'Bote PP5 Pequeño',
+  'Bolsa de PP5',
+  'Contenedor de PP5'
+];
+const TIPOS_AGAR = [
+  'Agar Nutritivo de Grano',
+  'Agar de Miel',
+  'Agar de Agua'
+];
+
+export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
   const nodos = useNodos(updateTrigger);
   const edges = useEdges(updateTrigger);
   const [nodoSeleccionado, setNodoSeleccionado] = useState(null);
+  const [editingValues, setEditingValues] = useState({
+    label: '',
+    especie: '',
+    fecha: '',
+    tipoTransferencia: '',
+    tipo: '',
+    tipoAgar: '',
+    notas: ''
+  });
+  const [creandoHijo, setCreandoHijo] = useState(false);
+  const [nuevoHijo, setNuevoHijo] = useState({
+    id: '',
+    label: '',
+    especie: '',
+    fecha: '',
+    tipoTransferencia: '',
+    tipo: '',
+    tipoAgar: ''
+  });
+
+  const nodosConSeleccion = nodos.map(nodo =>
+    nodoSeleccionado && nodo.id === nodoSeleccionado.id
+      ? { ...nodo, style: { ...(nodo.style || {}), background: '#38a169', border: '2px solid #38a169', color: '#fff' } }
+      : nodo
+  );
 
   function handleNodeClick(event, node) {
     setNodoSeleccionado(node);
+    setEditingValues({
+      label: node.data.label || '',
+      especie: node.data.especie || '',
+      fecha: node.data.fecha || '',
+      tipoTransferencia: node.data.tipoTransferencia || '',
+      tipo: node.data.tipo || '',
+      tipoAgar: node.data.tipoAgar || '',
+      notas: node.data.notas || ''
+    });
+  }
+
+  async function handleGuardarCambios() {
+    try {
+      const nodosRef = collection(db, 'nodos');
+      const q = query(nodosRef, where('id', '==', nodoSeleccionado.id));
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        const docRef = snapshot.docs[0].ref;
+        await updateDoc(docRef, editingValues);
+        // Actualizar el nodo seleccionado con los nuevos valores
+        setNodoSeleccionado({
+          ...nodoSeleccionado,
+          data: {
+            ...nodoSeleccionado.data,
+            ...editingValues
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error actualizando nodo:', error);
+    }
   }
 
   // Nuevo: Guardar posición al arrastrar
@@ -27,68 +109,494 @@ export default function MicelioGraph({ updateTrigger }) {
           x: node.position.x,
           y: node.position.y
         });
+        setUpdateTrigger(prev => prev + 1);
       }
     } catch (error) {
       console.error('Error actualizando posición del nodo:', error);
     }
   }
 
+  async function handleCrearHijo() {
+    if (!nuevoHijo.id || !nuevoHijo.label) {
+      alert('Los campos ID y Etiqueta son obligatorios');
+      return;
+    }
+
+    try {
+      // 1. Crear nodo hijo
+      await addDoc(collection(db, 'nodos'), {
+        ...nuevoHijo,
+        padre: nodoSeleccionado.id
+      });
+
+      // 2. Crear edge
+      await addDoc(collection(db, 'edges'), {
+        id: `e${nodoSeleccionado.id}-${nuevoHijo.id}`,
+        source: nodoSeleccionado.id,
+        target: nuevoHijo.id
+      });
+
+      // 3. Limpiar formulario y cerrar
+      setNuevoHijo({
+        id: '',
+        label: '',
+        especie: '',
+        fecha: '',
+        tipoTransferencia: '',
+        tipo: '',
+        tipoAgar: ''
+      });
+      setCreandoHijo(false);
+      setNodoSeleccionado(null);
+
+      // 4. Forzar actualización del gráfico
+      setUpdateTrigger(prev => prev + 1);
+    } catch (error) {
+      console.error('Error al crear el nodo hijo:', error);
+      alert('Error al crear el nodo hijo. Por favor, intente nuevamente.');
+    }
+  }
+
+  async function handleBorrarNodo() {
+    if (!nodoSeleccionado) return;
+    if (!window.confirm(`¿Seguro que quieres borrar este nodo (${nodoSeleccionado.data.tipo})?`)) return;
+    try {
+      // 1. Buscar y borrar el documento del nodo
+      const nodosRef = collection(db, 'nodos');
+      const q = query(nodosRef, where('id', '==', nodoSeleccionado.id));
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        await deleteDoc(snapshot.docs[0].ref);
+      }
+      // 2. Buscar y borrar edges donde source o target sea este nodo
+      const edgesRef = collection(db, 'edges');
+      const qEdges = query(edgesRef);
+      const edgesSnap = await getDocs(qEdges);
+      for (const doc of edgesSnap.docs) {
+        const data = doc.data();
+        if (data.source === nodoSeleccionado.id || data.target === nodoSeleccionado.id) {
+          await deleteDoc(doc.ref);
+        }
+      }
+      setNodoSeleccionado(null);
+      setUpdateTrigger(prev => prev + 1);
+    } catch (error) {
+      console.error('Error al borrar el nodo:', error);
+      alert('Error al borrar el nodo.');
+    }
+  }
+
   return (
-    <div style={{ width: '100%', height: '90vh', background: '#f0f0f0' }}>
+    <div style={{ width: '100%', height: '90vh', background: '#000000' }}>
       <ReactFlow
-        nodes={nodos}
+        nodes={nodosConSeleccion}
         edges={edges}
         onNodeClick={handleNodeClick}
+        onNodeDragStop={handleNodeDragStop}
         fitView
       >
-        <Background />
-        <Controls />
+        <Background color="#333333" gap={16} />
+        <Controls style={{ background: '#1a1a1a' }} />
       </ReactFlow>
 
-      {nodoSeleccionado && (
+      {nodoSeleccionado && !creandoHijo && (
         <div style={{
           position: 'absolute',
           top: 50,
           right: 50,
           padding: '1.5rem',
-          background: 'white',
-          border: '1px solid #e2e8f0',
+          background: '#1a1a1a',
+          border: '1px solid #333333',
           borderRadius: '8px',
-          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)',
           zIndex: 1000,
-          color: '#1a202c',
+          color: '#ffffff',
           minWidth: '250px'
         }}>
           <h3 style={{ 
             margin: '0 0 1rem 0', 
             fontSize: '1.25rem', 
             fontWeight: '600',
-            color: '#2d3748'
+            color: '#ffffff'
           }}>Detalles del nodo</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <p style={{ margin: 0 }}><strong style={{ color: '#4a5568' }}>ID:</strong> {nodoSeleccionado.id}</p>
-            <p style={{ margin: 0 }}><strong style={{ color: '#4a5568' }}>Etiqueta:</strong> {nodoSeleccionado.data.label}</p>
-            <p style={{ margin: 0 }}><strong style={{ color: '#4a5568' }}>Especie:</strong> {nodoSeleccionado.data.especie}</p>
-            <p style={{ margin: 0 }}><strong style={{ color: '#4a5568' }}>Fecha:</strong> {nodoSeleccionado.data.fecha}</p>
-            <p style={{ margin: 0 }}><strong style={{ color: '#4a5568' }}>Tipo de transferencia:</strong> {nodoSeleccionado.data.tipoTransferencia}</p>
-            <p style={{ margin: 0 }}><strong style={{ color: '#4a5568' }}>Tipo:</strong> {nodoSeleccionado.data.tipo}</p>
-            <p style={{ margin: 0 }}><strong style={{ color: '#4a5568' }}>Nodo padre:</strong> {nodoSeleccionado.data.padre}</p>
+            <p style={{ margin: 0 }}><strong style={{ color: '#a0aec0' }}>ID:</strong> {nodoSeleccionado.id}</p>
+            
+            <div style={{ marginBottom: '0.5rem' }}>
+              <strong style={{ color: '#a0aec0', display: 'block', marginBottom: '0.25rem' }}>Etiqueta:</strong>
+              <input
+                value={editingValues.label}
+                onChange={(e) => setEditingValues(prev => ({ ...prev, label: e.target.value }))}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #333333',
+                  borderRadius: '4px',
+                  background: '#2d2d2d',
+                  color: '#ffffff'
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '0.5rem' }}>
+              <strong style={{ color: '#a0aec0', display: 'block', marginBottom: '0.25rem' }}>Especie:</strong>
+              <select
+                value={editingValues.especie}
+                onChange={e => setEditingValues(prev => ({ ...prev, especie: e.target.value }))}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #333333',
+                  borderRadius: '4px',
+                  background: '#2d2d2d',
+                  color: '#ffffff'
+                }}
+              >
+                <option value="">Selecciona una especie</option>
+                {ESPECIES.map(opt => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: '0.5rem' }}>
+              <strong style={{ color: '#a0aec0', display: 'block', marginBottom: '0.25rem' }}>Fecha:</strong>
+              <input
+                type="date"
+                value={editingValues.fecha}
+                onChange={(e) => setEditingValues(prev => ({ ...prev, fecha: e.target.value }))}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #333333',
+                  borderRadius: '4px',
+                  background: '#2d2d2d',
+                  color: '#ffffff'
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '0.5rem' }}>
+              <strong style={{ color: '#a0aec0', display: 'block', marginBottom: '0.25rem' }}>Tipo de transferencia:</strong>
+              <select
+                value={editingValues.tipoTransferencia}
+                onChange={e => setEditingValues(prev => ({ ...prev, tipoTransferencia: e.target.value }))}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #333333',
+                  borderRadius: '4px',
+                  background: '#2d2d2d',
+                  color: '#ffffff'
+                }}
+              >
+                <option value="">Selecciona un tipo de transferencia</option>
+                {TIPOS_TRANSFERENCIA.map(opt => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: '0.5rem' }}>
+              <strong style={{ color: '#a0aec0', display: 'block', marginBottom: '0.25rem' }}>Tipo:</strong>
+              <select
+                value={editingValues.tipo}
+                onChange={e => setEditingValues(prev => ({ ...prev, tipo: e.target.value }))}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #333333',
+                  borderRadius: '4px',
+                  background: '#2d2d2d',
+                  color: '#ffffff'
+                }}
+              >
+                <option value="">Selecciona un tipo</option>
+                {TIPOS.map(opt => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: '0.5rem' }}>
+              <strong style={{ color: '#a0aec0', display: 'block', marginBottom: '0.25rem' }}>Tipo de agar:</strong>
+              <select
+                value={editingValues.tipoAgar}
+                onChange={e => setEditingValues(prev => ({ ...prev, tipoAgar: e.target.value }))}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #333333',
+                  borderRadius: '4px',
+                  background: '#2d2d2d',
+                  color: '#ffffff'
+                }}
+              >
+                <option value="">Selecciona un tipo de agar</option>
+                {TIPOS_AGAR.map(opt => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
+
+            <p style={{ margin: 0 }}><strong style={{ color: '#a0aec0' }}>Nodo padre:</strong> {nodoSeleccionado.data.padre}</p>
+            
+            <div style={{ marginTop: '1rem' }}>
+              <strong style={{ color: '#a0aec0', display: 'block', marginBottom: '0.5rem' }}>Notas:</strong>
+              <textarea
+                value={editingValues.notas}
+                onChange={(e) => setEditingValues(prev => ({ ...prev, notas: e.target.value }))}
+                style={{
+                  width: '100%',
+                  minHeight: '100px',
+                  padding: '0.5rem',
+                  border: '1px solid #333333',
+                  borderRadius: '4px',
+                  resize: 'vertical',
+                  background: '#2d2d2d',
+                  color: '#ffffff'
+                }}
+                placeholder="Escribe tus notas aquí..."
+              />
+            </div>
+
+            <button 
+              onClick={handleGuardarCambios}
+              style={{
+                marginTop: '1rem',
+                padding: '0.5rem 1rem',
+                backgroundColor: '#4299e1',
+                border: 'none',
+                borderRadius: '4px',
+                color: 'white',
+                cursor: 'pointer',
+                fontWeight: '500'
+              }}
+            >
+              Guardar todos los cambios
+            </button>
+
+            <button 
+              onClick={() => {
+                setCreandoHijo(true);
+                setNuevoHijo(prev => ({
+                  ...prev,
+                  tipo: nodoSeleccionado.data.tipo
+                }));
+              }}
+              style={{
+                marginTop: '1rem',
+                padding: '0.5rem 1rem',
+                backgroundColor: '#48bb78',
+                border: 'none',
+                borderRadius: '4px',
+                color: 'white',
+                cursor: 'pointer',
+                fontWeight: '500'
+              }}
+            >
+              Crear hijo a partir de esta {nodoSeleccionado.data.tipo}
+            </button>
+
+            <button
+              onClick={handleBorrarNodo}
+              style={{
+                marginTop: '1rem',
+                padding: '0.5rem 1rem',
+                backgroundColor: '#e53e3e',
+                border: 'none',
+                borderRadius: '4px',
+                color: 'white',
+                cursor: 'pointer',
+                fontWeight: '500'
+              }}
+            >
+              {`Borrar este ${nodoSeleccionado.data.tipo}`}
+            </button>
           </div>
           <button 
             onClick={() => setNodoSeleccionado(null)}
             style={{
               marginTop: '1rem',
               padding: '0.5rem 1rem',
-              backgroundColor: '#e2e8f0',
+              backgroundColor: '#333333',
               border: 'none',
               borderRadius: '4px',
-              color: '#2d3748',
+              color: '#ffffff',
               cursor: 'pointer',
               fontWeight: '500'
             }}
           >
             Cerrar
           </button>
+        </div>
+      )}
+
+      {creandoHijo && (
+        <div style={{
+          position: 'absolute',
+          top: 50,
+          right: 50,
+          padding: '1.5rem',
+          background: '#1a1a1a',
+          border: '1px solid #333333',
+          borderRadius: '8px',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)',
+          zIndex: 1000,
+          color: '#ffffff',
+          minWidth: '250px'
+        }}>
+          <h3 style={{ 
+            margin: '0 0 1rem 0', 
+            fontSize: '1.25rem', 
+            fontWeight: '600',
+            color: '#ffffff'
+          }}>Crear nuevo nodo hijo</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <input 
+              style={{
+                padding: '0.5rem',
+                border: '1px solid #333333',
+                borderRadius: '4px',
+                background: '#2d2d2d',
+                color: '#ffffff'
+              }}
+              placeholder="ID del nuevo nodo" 
+              value={nuevoHijo.id} 
+              onChange={e => setNuevoHijo(prev => ({ ...prev, id: e.target.value }))} 
+            />
+            <input 
+              style={{
+                padding: '0.5rem',
+                border: '1px solid #333333',
+                borderRadius: '4px',
+                background: '#2d2d2d',
+                color: '#ffffff'
+              }}
+              placeholder="Etiqueta / Nombre" 
+              value={nuevoHijo.label} 
+              onChange={e => setNuevoHijo(prev => ({ ...prev, label: e.target.value }))} 
+            />
+            <select 
+              style={{
+                padding: '0.5rem',
+                border: '1px solid #333333',
+                borderRadius: '4px',
+                background: '#2d2d2d',
+                color: '#ffffff'
+              }}
+              value={nuevoHijo.especie} 
+              onChange={e => setNuevoHijo(prev => ({ ...prev, especie: e.target.value }))} 
+            >
+              <option value="">Selecciona una especie</option>
+              {ESPECIES.map(opt => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            <input 
+              style={{
+                padding: '0.5rem',
+                border: '1px solid #333333',
+                borderRadius: '4px',
+                background: '#2d2d2d',
+                color: '#ffffff'
+              }}
+              type="date" 
+              value={nuevoHijo.fecha} 
+              onChange={e => setNuevoHijo(prev => ({ ...prev, fecha: e.target.value }))} 
+            />
+            <select 
+              style={{
+                padding: '0.5rem',
+                border: '1px solid #333333',
+                borderRadius: '4px',
+                background: '#2d2d2d',
+                color: '#ffffff'
+              }}
+              value={nuevoHijo.tipoTransferencia} 
+              onChange={e => setNuevoHijo(prev => ({ ...prev, tipoTransferencia: e.target.value }))} 
+            >
+              <option value="">Selecciona un tipo de transferencia</option>
+              {TIPOS_TRANSFERENCIA.map(opt => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            <select 
+              style={{
+                padding: '0.5rem',
+                border: '1px solid #333333',
+                borderRadius: '4px',
+                background: '#2d2d2d',
+                color: '#ffffff'
+              }}
+              value={nuevoHijo.tipo} 
+              onChange={e => setNuevoHijo(prev => ({ ...prev, tipo: e.target.value }))} 
+            >
+              <option value="">Selecciona un tipo</option>
+              {TIPOS.map(opt => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            <select 
+              style={{
+                padding: '0.5rem',
+                border: '1px solid #333333',
+                borderRadius: '4px',
+                background: '#2d2d2d',
+                color: '#ffffff'
+              }}
+              value={nuevoHijo.tipoAgar} 
+              onChange={e => setNuevoHijo(prev => ({ ...prev, tipoAgar: e.target.value }))} 
+            >
+              <option value="">Selecciona un tipo de agar</option>
+              {TIPOS_AGAR.map(opt => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+              <button 
+                onClick={handleCrearHijo}
+                style={{
+                  flex: 1,
+                  padding: '0.5rem 1rem',
+                  backgroundColor: '#4299e1',
+                  border: 'none',
+                  borderRadius: '4px',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontWeight: '500'
+                }}
+              >
+                Crear
+              </button>
+              <button 
+                onClick={() => {
+                  setCreandoHijo(false);
+                  setNuevoHijo({
+                    id: '',
+                    label: '',
+                    especie: '',
+                    fecha: '',
+                    tipoTransferencia: '',
+                    tipo: '',
+                    tipoAgar: ''
+                  });
+                }}
+                style={{
+                  flex: 1,
+                  padding: '0.5rem 1rem',
+                  backgroundColor: '#333333',
+                  border: 'none',
+                  borderRadius: '4px',
+                  color: '#ffffff',
+                  cursor: 'pointer',
+                  fontWeight: '500'
+                }}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

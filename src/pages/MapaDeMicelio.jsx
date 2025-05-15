@@ -12,6 +12,7 @@ export default function MapaDeMicelio() {
   const [fecha, setFecha] = useState('');
   const [tipoTransferencia, setTipoTransferencia] = useState('');
   const [tipo, setTipo] = useState('');
+  const [tipoAgar, setTipoAgar] = useState('');
   const [updateTrigger, setUpdateTrigger] = useState(0);
 
   const nodos = useNodos(typeof updateTrigger !== 'undefined' ? updateTrigger : 0);
@@ -59,6 +60,7 @@ export default function MapaDeMicelio() {
         fecha,
         tipoTransferencia,
         tipo,
+        tipoAgar,
         padre: parentId
       });
 
@@ -77,6 +79,7 @@ export default function MapaDeMicelio() {
       setFecha('');
       setTipoTransferencia('');
       setTipo('');
+      setTipoAgar('');
 
       // 4. Forzar actualización del gráfico
       setUpdateTrigger(prev => prev + 1);
@@ -92,7 +95,7 @@ export default function MapaDeMicelio() {
       
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="w-full">
-          <MicelioGraph updateTrigger={updateTrigger} />
+          <MicelioGraph updateTrigger={updateTrigger} setUpdateTrigger={setUpdateTrigger} />
         </div>
 
         <div className="w-full">
@@ -140,6 +143,12 @@ export default function MapaDeMicelio() {
               placeholder="Tipo de nodo (ej. placa, frasco, bolsa)" 
               value={tipo} 
               onChange={e => setTipo(e.target.value)} 
+            />
+            <input 
+              className="p-2 border rounded"
+              placeholder="Tipo de agar (ej. PDA, MEA, etc.)" 
+              value={tipoAgar} 
+              onChange={e => setTipoAgar(e.target.value)} 
             />
             <button 
               className="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 transition-colors"
