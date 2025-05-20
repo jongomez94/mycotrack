@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, updateDoc, doc, query, where } from 'firebase/firestore';
 import { db } from '../firebase/config';
 
 function buildTree(nodos) {
@@ -31,7 +31,10 @@ function assignPositions(node, x = 0, y = 0, spacingX = 180, spacingY = 120, nex
         tipo: node.tipo || '',
         tipoAgar: node.tipoAgar || '',
         padre: node.padre || '',
-        notas: node.notas || ''
+        notas: node.notas || '',
+        estado: node.estado || '',
+        x: node.x,
+        y: node.y
       },
       type: 'default',
       draggable: true
@@ -72,7 +75,10 @@ function assignPositions(node, x = 0, y = 0, spacingX = 180, spacingY = 120, nex
       tipo: node.tipo || '',
       tipoAgar: node.tipoAgar || '',
       padre: node.padre || '',
-      notas: node.notas || ''
+      notas: node.notas || '',
+      estado: node.estado || '',
+      x: node.x,
+      y: node.y
     },
     type: 'default',
     draggable: true

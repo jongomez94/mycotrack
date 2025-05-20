@@ -9,7 +9,8 @@ import { db } from '../firebase/config';
 const ESPECIES = [
   'Psilocybe Natalensis',
   'Hericium Erinaceus',
-  'Ganoderma Lucidum'
+  'Ganoderma Lucidum',
+  'Trametes Versicolor' 
 ];
 const TIPOS_TRANSFERENCIA = [
   'Agar a Agar',
@@ -17,14 +18,18 @@ const TIPOS_TRANSFERENCIA = [
   'Grano a Grano',
   'Cultivo Liquido a Grano',
   'Cultivo Liquido a Agar',
-  'Grano a Agar'
+  'Cultivo Liquido a Cultivo Liquido',
+  'Grano a Agar',
+  'Grano a sustrato en masa'
 ];
 const TIPOS = [
   'Placa Petri',
   'Bote PP5 Grande',
   'Bote PP5 Pequeño',
   'Bolsa de PP5',
-  'Contenedor de PP5'
+  'Contenedor de PP5',
+  'Jeringa Original',
+  'Honey Tek'
 ];
 const TIPOS_AGAR = [
   'Agar Nutritivo de Grano',
@@ -43,7 +48,8 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
     tipoTransferencia: '',
     tipo: '',
     tipoAgar: '',
-    notas: ''
+    notas: '',
+    estado: ''
   });
   const [creandoHijo, setCreandoHijo] = useState(false);
   const [nuevoHijo, setNuevoHijo] = useState({
@@ -53,7 +59,8 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
     fecha: '',
     tipoTransferencia: '',
     tipo: '',
-    tipoAgar: ''
+    tipoAgar: '',
+    estado: ''
   });
 
   const nodosConSeleccion = nodos.map(nodo =>
@@ -71,7 +78,8 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
       tipoTransferencia: node.data.tipoTransferencia || '',
       tipo: node.data.tipo || '',
       tipoAgar: node.data.tipoAgar || '',
-      notas: node.data.notas || ''
+      notas: node.data.notas || '',
+      estado: node.data.estado || ''
     });
   }
 
@@ -122,11 +130,35 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
       return;
     }
 
+    // Obtener los nodos hermanos existentes del nodo seleccionado
+    // Usamos la lista completa de 'nodos' obtenida del hook
+    const hermanosExistente = nodos.filter(node => node.data.padre === nodoSeleccionado.id);
+
+    // Calcular la posición inicial del nuevo hijo
+    // Basamos la posición X en el índice del nuevo hijo en la lista de hermanos (+1 para el nuevo)
+    // y la centramos aproximadamente bajo el padre.
+    const numHermanos = hermanosExistente.length;
+    const newChildIndex = numHermanos; // El nuevo hijo será el último en la lista
+    const horizontalSpacing = 180; // Espacio horizontal deseado entre hermanos
+    const verticalSpacing = 120; // Espacio vertical deseado del padre (puede ser diferente a spacingY en useNodos si quieres)
+
+    // Calcula el punto de inicio horizontal para el grupo de hijos para centrarlos bajo el padre
+    // Si hay 0 hermanos, startX = parent.x. Si hay 1 hermano, startX = parent.x - 90, etc.
+    const startX = (nodoSeleccionado?.position?.x || 0) - (numHermanos * horizontalSpacing) / 2;
+
+    const initialPosition = {
+        x: startX + (newChildIndex * horizontalSpacing),
+        y: (nodoSeleccionado?.position?.y || 0) + verticalSpacing,
+    };
+
     try {
-      // 1. Crear nodo hijo
+      // 1. Crear nodo hijo, incluyendo la posición inicial calculada y el estado
       await addDoc(collection(db, 'nodos'), {
         ...nuevoHijo,
-        padre: nodoSeleccionado.id
+        padre: nodoSeleccionado.id,
+        x: initialPosition.x,
+        y: initialPosition.y,
+        estado: nuevoHijo.estado || ''
       });
 
       // 2. Crear edge
@@ -144,12 +176,13 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
         fecha: '',
         tipoTransferencia: '',
         tipo: '',
-        tipoAgar: ''
+        tipoAgar: '',
+        estado: ''
       });
       setCreandoHijo(false);
       setNodoSeleccionado(null);
 
-      // 4. Forzar actualización del gráfico
+      // 4. Forzar actualización del gráfico para que muestre el nuevo nodo
       setUpdateTrigger(prev => prev + 1);
     } catch (error) {
       console.error('Error al crear el nodo hijo:', error);
@@ -338,6 +371,30 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
                 ))}
               </select>
             </div>
+
+            {/* Nuevo campo: Estado (visible solo para Placa Petri) */}
+            {nodoSeleccionado.data.tipo === 'Placa Petri' && (
+              <div style={{ marginBottom: '0.5rem' }}>
+                <strong style={{ color: '#a0aec0', display: 'block', marginBottom: '0.25rem' }}>Estado:</strong>
+                <select
+                  value={editingValues.estado}
+                  onChange={e => setEditingValues(prev => ({ ...prev, estado: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    border: '1px solid #333333',
+                    borderRadius: '4px',
+                    background: '#2d2d2d',
+                    color: '#ffffff'
+                  }}
+                >
+                  <option value="">Selecciona un estado</option>
+                  <option value="Activa">Activa</option>
+                  <option value="Contaminada">Contaminada</option>
+                  <option value="Exhausta">Exhausta</option>
+                </select>
+              </div>
+            )}
 
             <p style={{ margin: 0 }}><strong style={{ color: '#a0aec0' }}>Nodo padre:</strong> {nodoSeleccionado.data.padre}</p>
             
@@ -579,7 +636,8 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
                     fecha: '',
                     tipoTransferencia: '',
                     tipo: '',
-                    tipoAgar: ''
+                    tipoAgar: '',
+                    estado: ''
                   });
                 }}
                 style={{
