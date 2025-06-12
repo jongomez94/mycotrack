@@ -66,3 +66,14 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+/* Make default React Flow nodes transparent */
+.react-flow__node-default {
+  background-color: transparent !important;
+}
+
+/* You might also want to adjust padding or border if necessary */
+ .react-flow__node-default {
+  padding: 0;
+  border: none;
+} 

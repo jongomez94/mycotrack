@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import MicelioGraph from '../components/MicelioGraph';
+import Login from '../components/Login';
 import { db } from '../firebase/config';
 import { collection, addDoc, getDocs, query, where } from 'firebase/firestore';
 import { useNodos } from '../hooks/useNodos';
+import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
 
 export default function MapaDeMicelio() {
   const [id, setId] = useState('');
@@ -14,8 +16,29 @@ export default function MapaDeMicelio() {
   const [tipo, setTipo] = useState('');
   const [tipoAgar, setTipoAgar] = useState('');
   const [updateTrigger, setUpdateTrigger] = useState(0);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   const nodos = useNodos(typeof updateTrigger !== 'undefined' ? updateTrigger : 0);
+
+  useEffect(() => {
+    const auth = getAuth();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      const auth = getAuth();
+      await signOut(auth);
+    } catch (error) {
+      console.error('Error al cerrar sesión:', error);
+    }
+  };
 
   async function crearNodo() {
     if (!id || !label || !parentId) {
@@ -89,9 +112,49 @@ export default function MapaDeMicelio() {
     }
   }
 
+  if (loading) {
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '100vh',
+        background: '#1a1a1a',
+        color: '#ffffff'
+      }}>
+        Cargando...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login onLogin={() => {}} />;
+  }
+
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6">Mapa de Micelio</h1>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '1.5rem'
+      }}>
+        <h1 className="text-3xl font-bold">Mapa de Micelio</h1>
+        <button
+          onClick={handleLogout}
+          style={{
+            padding: '0.5rem 1rem',
+            backgroundColor: '#e53e3e',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontWeight: '500'
+          }}
+        >
+          Cerrar sesión
+        </button>
+      </div>
       
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="w-full">
