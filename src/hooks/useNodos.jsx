@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { collection, getDocs, updateDoc, doc, query, where } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase/config';
+import dagre from 'dagre';
 
 function buildTree(nodos) {
   const map = {};
@@ -16,77 +17,45 @@ function buildTree(nodos) {
   return roots;
 }
 
-function assignPositions(node, x = 0, y = 0, spacingX = 180, spacingY = 120, nextX = { value: 0 }) {
-  let nodes = [];
-  // SI el nodo tiene x/y, los usamos y NO recalculamos (permite que usuario lo mueva)
-  if (typeof node.x === 'number' && typeof node.y === 'number') {
-    nodes.push({
-      id: node.id,
-      position: { x: node.x, y: node.y },
-      data: {
-        label: node.label,
-        especie: node.especie || '',
-        fecha: node.fecha || '',
-        tipoTransferencia: node.tipoTransferencia || '',
-        tipo: node.tipo || '',
-        tipoAgar: node.tipoAgar || '',
-        padre: node.padre || '',
-        notas: node.notas || '',
-        estado: node.estado || '',
-        x: node.x,
-        y: node.y
-      },
-      type: 'default',
-      draggable: true
-    });
-    // Procesamos hijos (si existen) con layout jerárquico relativo a este nodo fijo
-    node.children.forEach(child => {
-      nodes = nodes.concat(assignPositions(child, node.x, node.y + spacingY, spacingX, spacingY, nextX));
-    });
-    return nodes;
-  }
+function getLayoutedElements(nodes, edges, direction = 'TB') {
+  const dagreGraph = new dagre.graphlib.Graph();
+  dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-  // Si NO hay x/y, usamos layout automático tipo árbol
-  if (!node.children.length) {
-    // Hoja: asignar posición horizontal secuencial
-    node.x = nextX.value * spacingX;
-    node.y = y;
-    nextX.value += 1;
-  } else {
-    // Asignar posiciones a los hijos primero
-    let childNodes = [];
-    node.children.forEach(child => {
-      childNodes = childNodes.concat(assignPositions(child, x, y + spacingY, spacingX, spacingY, nextX));
-    });
-    // Centrar el padre respecto a sus hijos
-    const minX = Math.min(...node.children.map(c => c.x));
-    const maxX = Math.max(...node.children.map(c => c.x));
-    node.x = (minX + maxX) / 2;
-    node.y = y;
-  }
-  nodes.push({
-    id: node.id,
-    position: { x: node.x, y: node.y },
-    data: {
-      label: node.label,
-      especie: node.especie || '',
-      fecha: node.fecha || '',
-      tipoTransferencia: node.tipoTransferencia || '',
-      tipo: node.tipo || '',
-      tipoAgar: node.tipoAgar || '',
-      padre: node.padre || '',
-      notas: node.notas || '',
-      estado: node.estado || '',
-      x: node.x,
-      y: node.y
-    },
-    type: 'default',
-    draggable: true
+  // Configure the graph
+  dagreGraph.setGraph({
+    rankdir: direction,
+    nodesep: 100,
+    ranksep: 150,
+    marginx: 50,
+    marginy: 50
   });
-  node.children.forEach(child => {
-    nodes = nodes.concat(assignPositions(child, x, y + spacingY, spacingX, spacingY, nextX));
+
+  // Add nodes to the graph
+  nodes.forEach(node => {
+    dagreGraph.setNode(node.id, { width: 180, height: 80 });
   });
-  return nodes;
+
+  // Add edges to the graph
+  edges.forEach(edge => {
+    dagreGraph.setEdge(edge.source, edge.target);
+  });
+
+  // Calculate the layout
+  dagre.layout(dagreGraph);
+
+  // Get the layouted nodes
+  const layoutedNodes = nodes.map(node => {
+    const nodeWithPosition = dagreGraph.node(node.id);
+    return {
+      ...node,
+      position: {
+        x: nodeWithPosition.x - 90, // Center the node
+        y: nodeWithPosition.y - 40
+      }
+    };
+  });
+
+  return { nodes: layoutedNodes, edges };
 }
 
 export function useNodos(trigger = 0) {
@@ -96,22 +65,53 @@ export function useNodos(trigger = 0) {
     async function cargarNodos() {
       const nodosRef = collection(db, 'nodos');
       const snapshot = await getDocs(nodosRef);
-      const nodosData = snapshot.docs.map(doc => doc.data());
+      const nodosData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
 
-      // Construir árbol (soporta varios raíces)
+      // Build the tree structure
       const roots = buildTree(nodosData);
 
-      // Centrar el/los raíz/raíces en x=0
-      let allNodes = [];
-      let nextX = { value: 0 };
-      roots.forEach((root, i) => {
-        // El primer root en x=0, los demás a la derecha
-        const rootX = i * 300; // Espaciado entre árboles si hay varios
-        const nodesWithPos = assignPositions(root, rootX, 0, 180, 120, nextX);
-        allNodes = allNodes.concat(nodesWithPos);
-      });
+      // Convert tree to nodes and edges
+      const nodes = [];
+      const edges = [];
 
-      setNodos(allNodes);
+      function processNode(node) {
+        nodes.push({
+          id: node.id,
+          data: {
+            label: node.label,
+            especie: node.especie || '',
+            fecha: node.fecha || '',
+            tipoTransferencia: node.tipoTransferencia || '',
+            tipo: node.tipo || '',
+            tipoAgar: node.tipoAgar || '',
+            padre: node.padre || '',
+            notas: node.notas || '',
+            estado: node.estado || '',
+            hidden: node.hidden || false
+          },
+          type: 'default',
+          draggable: true
+        });
+
+        node.children.forEach(child => {
+          edges.push({
+            id: `${node.id}-${child.id}`,
+            source: node.id,
+            target: child.id,
+            type: 'smoothstep'
+          });
+          processNode(child);
+        });
+      }
+
+      roots.forEach(root => processNode(root));
+
+      // Apply dagre layout
+      const { nodes: layoutedNodes } = getLayoutedElements(nodes, edges);
+      setNodos(layoutedNodes);
     }
     cargarNodos();
   }, [trigger]);

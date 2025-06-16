@@ -81,6 +81,27 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
     return () => unsubscribe();
   }, []);
 
+  // Cargar el estado de visibilidad de los nodos al inicio
+  useEffect(() => {
+    const loadHiddenNodes = async () => {
+      try {
+        const nodosRef = collection(db, 'nodos');
+        const q = query(nodosRef, where('hidden', '==', true));
+        const snapshot = await getDocs(q);
+        const hiddenNodesSet = new Set();
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          hiddenNodesSet.add(data.id);
+        });
+        setHiddenNodes(hiddenNodesSet);
+      } catch (error) {
+        console.error('Error al cargar nodos ocultos:', error);
+      }
+    };
+
+    loadHiddenNodes();
+  }, []);
+
   // Función para encontrar todos los hijos recursivamente
   const findAllChildren = (nodeId, allNodes) => {
     const children = new Set();
@@ -124,7 +145,8 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
         if (!snapshot.empty) {
           const docRef = snapshot.docs[0].ref;
           batch.push(updateDoc(docRef, { 
-            hidden: false
+            hidden: false,
+            lastHiddenUpdate: new Date().toISOString()
           }));
         }
       }
@@ -160,7 +182,8 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
         if (!snapshot.empty) {
           const docRef = snapshot.docs[0].ref;
           batch.push(updateDoc(docRef, { 
-            hidden: false
+            hidden: false,
+            lastHiddenUpdate: new Date().toISOString()
           }));
         }
       }
@@ -192,6 +215,7 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
       // Actualizar en Firestore
       const nodosRef = collection(db, 'nodos');
       const batch = [];
+      const timestamp = new Date().toISOString();
       
       for (const childId of allChildren) {
         const q = query(nodosRef, where('id', '==', childId));
@@ -199,7 +223,8 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
         if (!snapshot.empty) {
           const docRef = snapshot.docs[0].ref;
           batch.push(updateDoc(docRef, { 
-            hidden: newHiddenNodes.has(childId)
+            hidden: newHiddenNodes.has(childId),
+            lastHiddenUpdate: timestamp
           }));
         }
       }
@@ -484,7 +509,8 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
       if (!snapshot.empty) {
         const docRef = snapshot.docs[0].ref;
         await updateDoc(docRef, { 
-          hidden: true
+          hidden: true,
+          lastHiddenUpdate: new Date().toISOString() // Agregamos timestamp para tracking
         });
         setUpdateTrigger(prev => prev + 1);
       }
@@ -522,7 +548,9 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
           boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)',
           zIndex: 1000,
           color: '#ffffff',
-          minWidth: '250px'
+          minWidth: '250px',
+          maxHeight: '80vh',
+          overflowY: 'auto',
         }}>
           <h3 style={{ 
             margin: '0 0 1rem 0', 
@@ -753,6 +781,64 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
               </div>
             )}
 
+            <button 
+              onClick={handleGuardarCambios}
+              disabled={!user}
+              style={{
+                marginTop: '1rem',
+                padding: '0.5rem 1rem',
+                backgroundColor: user ? '#4299e1' : '#4a5568',
+                border: 'none',
+                borderRadius: '4px',
+                color: 'white',
+                cursor: user ? 'pointer' : 'not-allowed',
+                fontWeight: '500',
+                opacity: user ? 1 : 0.7
+              }}
+            >
+              Guardar todos los cambios
+            </button>
+
+            <button 
+              onClick={() => {
+                setCreandoHijo(true);
+                setNuevoHijo(prev => ({
+                  ...prev,
+                  tipo: nodoSeleccionado.data.tipo
+                }));
+              }}
+              disabled={!user}
+              style={{
+                padding: '0.5rem 1rem',
+                backgroundColor: user ? '#48bb78' : '#4a5568',
+                border: 'none',
+                borderRadius: '4px',
+                color: 'white',
+                cursor: user ? 'pointer' : 'not-allowed',
+                fontWeight: '500',
+                opacity: user ? 1 : 0.7
+              }}
+            >
+              Crear hijo a partir de esta {nodoSeleccionado.data.tipo}
+            </button>
+
+            <button
+              onClick={handleBorrarNodo}
+              disabled={!user}
+              style={{
+                padding: '0.5rem 1rem',
+                backgroundColor: user ? '#e53e3e' : '#4a5568',
+                border: 'none',
+                borderRadius: '4px',
+                color: 'white',
+                cursor: user ? 'pointer' : 'not-allowed',
+                fontWeight: '500',
+                opacity: user ? 1 : 0.7
+              }}
+            >
+              {`Borrar este ${nodoSeleccionado.data.tipo}`}
+            </button>
+
             <div style={{ 
               marginTop: '1.5rem',
               padding: '1rem',
@@ -853,78 +939,21 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
             </div>
 
             <button 
-              onClick={handleGuardarCambios}
-              disabled={!user}
+              onClick={() => setNodoSeleccionado(null)}
               style={{
                 marginTop: '1rem',
                 padding: '0.5rem 1rem',
-                backgroundColor: user ? '#4299e1' : '#4a5568',
+                backgroundColor: '#333333',
                 border: 'none',
                 borderRadius: '4px',
-                color: 'white',
-                cursor: user ? 'pointer' : 'not-allowed',
-                fontWeight: '500',
-                opacity: user ? 1 : 0.7
+                color: '#ffffff',
+                cursor: 'pointer',
+                fontWeight: '500'
               }}
             >
-              Guardar todos los cambios
-            </button>
-
-            <button 
-              onClick={() => {
-                setCreandoHijo(true);
-                setNuevoHijo(prev => ({
-                  ...prev,
-                  tipo: nodoSeleccionado.data.tipo
-                }));
-              }}
-              disabled={!user}
-              style={{
-                padding: '0.5rem 1rem',
-                backgroundColor: user ? '#48bb78' : '#4a5568',
-                border: 'none',
-                borderRadius: '4px',
-                color: 'white',
-                cursor: user ? 'pointer' : 'not-allowed',
-                fontWeight: '500',
-                opacity: user ? 1 : 0.7
-              }}
-            >
-              Crear hijo a partir de esta {nodoSeleccionado.data.tipo}
-            </button>
-
-            <button
-              onClick={handleBorrarNodo}
-              disabled={!user}
-              style={{
-                padding: '0.5rem 1rem',
-                backgroundColor: user ? '#e53e3e' : '#4a5568',
-                border: 'none',
-                borderRadius: '4px',
-                color: 'white',
-                cursor: user ? 'pointer' : 'not-allowed',
-                fontWeight: '500',
-                opacity: user ? 1 : 0.7
-              }}
-            >
-              {`Borrar este ${nodoSeleccionado.data.tipo}`}
+              Cerrar
             </button>
           </div>
-          <button 
-            onClick={() => setNodoSeleccionado(null)}
-            style={{
-              marginTop: '1rem',
-              padding: '0.5rem 1rem',
-              backgroundColor: '#333333',
-              border: 'none',
-              borderRadius: '4px',
-              color: '#ffffff',
-              cursor: 'pointer',
-              fontWeight: '500'
-            }}
-          >
-            Cerrar
-          </button>
         </div>
       )}
 
@@ -1101,6 +1130,29 @@ export default function MicelioGraph({ updateTrigger, setUpdateTrigger }) {
                 <option key={opt} value={opt}>{opt}</option>
               ))}
             </select>
+
+            {/* Campo Estado */}
+            <select
+              style={{
+                padding: '0.5rem',
+                border: '1px solid #333333',
+                borderRadius: '4px',
+                background: '#2d2d2d',
+                color: '#ffffff',
+                marginTop: '0.5rem'
+              }}
+              value={nuevoHijo.estado}
+              onChange={e => setNuevoHijo(prev => ({ ...prev, estado: e.target.value }))}
+            >
+              <option value="">Selecciona un estado</option>
+              <option value="Activa">Activa</option>
+              <option value="Contaminada">Contaminada</option>
+              <option value="Exhausta">Exhausta</option>
+              <option value="Descartada">Descartada</option>
+              <option value="Contaminada pero limpiable">Contaminada pero limpiable</option>
+              <option value="En Refrigerador">En Refrigerador</option>
+            </select>
+
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
               <button 
                 onClick={handleCrearHijo}
